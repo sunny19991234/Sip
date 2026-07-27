@@ -1,0 +1,440 @@
+<!doctype html>
+<html lang="nl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="manifest" href="./manifest.json" />
+    <title>Sip — gebruik op je telefoon</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      body {
+        margin: 0;
+        background: #f5f7fb;
+        color: #111827;
+      }
+      .app {
+        max-width: 860px;
+        margin: 0 auto;
+        padding: 24px;
+      }
+      .card {
+        background: white;
+        border-radius: 20px;
+        padding: 20px;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+        margin-bottom: 16px;
+      }
+      h1, h2, h3, p { margin-top: 0; }
+      .hero {
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 16px;
+        align-items: center;
+      }
+      .glass {
+        width: 100%;
+        max-width: 220px;
+        aspect-ratio: 1 / 1.2;
+        margin: 0 auto;
+        border-radius: 0 0 50px 50px;
+        background: linear-gradient(180deg, #dbeafe 0%, #93c5fd 100%);
+        border: 2px solid #60a5fa;
+        position: relative;
+        overflow: hidden;
+      }
+      .glass::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 40%);
+      }
+      .water {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: linear-gradient(180deg, #38bdf8 0%, #2563eb 100%);
+        transition: height 0.25s ease;
+        height: 0%;
+      }
+      .progress-row {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 8px;
+        font-weight: 600;
+      }
+      .bar {
+        height: 16px;
+        border-radius: 999px;
+        background: #e5e7eb;
+        overflow: hidden;
+      }
+      .fill {
+        height: 100%;
+        background: linear-gradient(90deg, #38bdf8 0%, #2563eb 100%);
+        transition: width 0.2s ease;
+        width: 0%;
+      }
+      .buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      button {
+        border: 0;
+        border-radius: 999px;
+        padding: 11px 14px;
+        background: #0f172a;
+        color: white;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.secondary {
+        background: #2563eb;
+      }
+      button.ghost {
+        background: #e2e8f0;
+        color: #0f172a;
+      }
+      .stack {
+        display: grid;
+        gap: 8px;
+      }
+      .stack input {
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid #d1d5db;
+        min-width: 140px;
+      }
+      ul { padding-left: 18px; }
+      li { margin-bottom: 8px; }
+      .hint {
+        color: #6b7280;
+        font-size: 0.95rem;
+      }
+      .status {
+        background: #eff6ff;
+        border-radius: 12px;
+        padding: 10px 12px;
+        margin-bottom: 12px;
+        color: #1d4ed8;
+      }
+      @media (max-width: 700px) {
+        .hero { grid-template-columns: 1fr; }
+        .app { padding: 16px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <div class="card">
+        <h1>Sip</h1>
+        <p class="hint">Deze versie werkt zonder Node. Vul je Supabase-gegevens in en gebruik hem op je telefoon.</p>
+      </div>
+
+      <div class="card">
+        <h2>Supabase setup</h2>
+        <div class="stack">
+          <input id="supabaseUrlInput" placeholder="https://<project>.supabase.co" />
+          <input id="supabaseKeyInput" placeholder="anon key" />
+          <div class="buttons">
+            <button class="secondary" id="saveConfigBtn">Opslaan en verbinden</button>
+          </div>
+        </div>
+        <p id="statusText" class="status">Nog niet verbonden.</p>
+      </div>
+
+      <div class="card hero">
+        <div>
+          <h2>Vandaag</h2>
+          <div class="progress-row">
+            <span id="progressText">0 / 3000 ml</span>
+            <span id="progressPercent">0%</span>
+          </div>
+          <div class="bar">
+            <div class="fill" id="progressFill"></div>
+          </div>
+          <p id="remainingText" style="margin-top: 10px; margin-bottom: 10px;">Resterend: 3000 ml</p>
+          <div class="buttons">
+            <button data-amount="250">Glas · 250 ml</button>
+            <button data-amount="750">Fles · 750 ml</button>
+            <button data-amount="1000">Liter · 1000 ml</button>
+            <button class="ghost" data-amount="750" data-source="nfc">NFC · 750 ml</button>
+          </div>
+        </div>
+        <div class="glass" aria-label="Vooruitgangsvisualisatie">
+          <div class="water" id="waterFill"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Anders</h2>
+        <input id="customAmount" type="number" min="10" step="10" value="250" />
+        <button class="secondary" id="logCustomBtn" style="margin-left: 8px;">Loggen</button>
+        <button class="ghost" id="undoBtn" style="margin-left: 8px;">Undo laatste</button>
+      </div>
+
+      <div class="card">
+        <h2>Recente entries</h2>
+        <ul id="entriesList"></ul>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    <script>
+      const CONFIG_URL_KEY = 'sip-supabase-url';
+      const CONFIG_KEY_KEY = 'sip-supabase-key';
+      const STORAGE_KEY = 'sip-preview-state';
+      const defaultState = {
+        target: 3000,
+        entries: []
+      };
+
+      const state = {
+        target: 3000,
+        entries: [],
+        supabaseUrl: '',
+        supabaseKey: '',
+        client: null,
+        userId: null,
+        status: 'Nog niet verbonden.'
+      };
+
+      function loadState() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return defaultState;
+          const parsed = JSON.parse(raw);
+          return { target: parsed.target || 3000, entries: parsed.entries || [] };
+        } catch {
+          return defaultState;
+        }
+      }
+
+      function saveState() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ target: state.target, entries: state.entries }));
+      }
+
+      function setStatus(message) {
+        state.status = message;
+        document.getElementById('statusText').textContent = message;
+      }
+
+      function render() {
+        const total = state.entries.reduce((sum, entry) => sum + entry.amount, 0);
+        const percent = Math.min(Math.round((total / state.target) * 100), 100);
+        const remaining = Math.max(state.target - total, 0);
+
+        document.getElementById('progressText').textContent = `${total} / ${state.target} ml`;
+        document.getElementById('progressPercent').textContent = `${percent}%`;
+        document.getElementById('progressFill').style.width = `${percent}%`;
+        document.getElementById('waterFill').style.height = `${Math.min(percent, 100)}%`;
+        document.getElementById('remainingText').textContent = `Resterend: ${remaining} ml`;
+
+        const list = document.getElementById('entriesList');
+        list.innerHTML = '';
+        if (state.entries.length === 0) {
+          list.innerHTML = '<li>Geen entries yet.</li>';
+          return;
+        }
+
+        state.entries.forEach((entry) => {
+          const li = document.createElement('li');
+          li.innerHTML = `<strong>${entry.amount} ml</strong> · ${entry.source} · ${entry.time}`;
+          list.appendChild(li);
+        });
+      }
+
+      async function ensureDefaults() {
+        if (!state.client || !state.userId) return;
+
+        const { data: settingsData, error: settingsError } = await state.client.from('settings').select('*').eq('user_id', state.userId).maybeSingle();
+        if (!settingsError && !settingsData) {
+          await state.client.from('settings').insert({
+            user_id: state.userId,
+            daily_target_ml: 3000,
+            day_start_hour: 4,
+            timezone: 'Europe/Amsterdam',
+            quiet_hours: { from: '22:00', to: '08:00' }
+          });
+        }
+
+        const { data: existingContainers, error: containerError } = await state.client.from('containers').select('*').eq('user_id', state.userId).order('sort_order');
+        if (containerError) return;
+        const existingNames = new Set((existingContainers || []).map((container) => container.name));
+        const defaults = [
+          { name: 'Glas 250 ml', volume_ml: 250, sort_order: 1, is_nfc_default: false },
+          { name: 'Fles 750 ml', volume_ml: 750, sort_order: 2, is_nfc_default: true },
+          { name: 'Liter 1000 ml', volume_ml: 1000, sort_order: 3, is_nfc_default: false }
+        ];
+
+        for (const item of defaults) {
+          if (!existingNames.has(item.name)) {
+            await state.client.from('containers').insert({
+              user_id: state.userId,
+              ...item
+            });
+          }
+        }
+
+        const { data: refreshedContainers } = await state.client.from('containers').select('*').eq('user_id', state.userId).order('sort_order');
+        if (refreshedContainers) {
+          renderButtons(refreshedContainers);
+        }
+      }
+
+      function renderButtons(containers) {
+        const buttons = Array.from(document.querySelectorAll('button[data-amount]'));
+        buttons.forEach((button) => {
+          button.disabled = false;
+        });
+
+        const quickButtons = document.querySelectorAll('button[data-amount]:not(.ghost)');
+        quickButtons.forEach((button) => {
+          button.remove();
+        });
+
+        const containerWrap = document.querySelector('.buttons');
+        if (containerWrap) {
+          const existingAction = document.querySelector('button.ghost[data-source="nfc"]');
+          if (existingAction) {
+            existingAction.remove();
+          }
+          const nfcButton = document.createElement('button');
+          nfcButton.className = 'ghost';
+          nfcButton.dataset.amount = '750';
+          nfcButton.dataset.source = 'nfc';
+          nfcButton.textContent = 'NFC · 750 ml';
+          nfcButton.addEventListener('click', () => addEntry(750, 'nfc'));
+          containerWrap.appendChild(nfcButton);
+
+          containers.forEach((container) => {
+            const button = document.createElement('button');
+            button.dataset.amount = String(container.volume_ml);
+            button.textContent = `${container.name} · ${container.volume_ml} ml`;
+            button.addEventListener('click', () => addEntry(container.volume_ml, 'ui'));
+            containerWrap.appendChild(button);
+          });
+        }
+      }
+
+      function restoreConfig() {
+        const fromUrl = new URLSearchParams(window.location.search);
+        state.supabaseUrl = fromUrl.get('url') || localStorage.getItem(CONFIG_URL_KEY) || '';
+        state.supabaseKey = fromUrl.get('key') || localStorage.getItem(CONFIG_KEY_KEY) || '';
+        document.getElementById('supabaseUrlInput').value = state.supabaseUrl;
+        document.getElementById('supabaseKeyInput').value = state.supabaseKey;
+      }
+
+      function saveConfig() {
+        state.supabaseUrl = document.getElementById('supabaseUrlInput').value.trim();
+        state.supabaseKey = document.getElementById('supabaseKeyInput').value.trim();
+        localStorage.setItem(CONFIG_URL_KEY, state.supabaseUrl);
+        localStorage.setItem(CONFIG_KEY_KEY, state.supabaseKey);
+        const params = new URLSearchParams(window.location.search);
+        if (state.supabaseUrl) params.set('url', state.supabaseUrl);
+        if (state.supabaseKey) params.set('key', state.supabaseKey);
+        const newUrl = `${window.location.pathname}?${params.toString()}`;
+        window.history.replaceState({}, '', newUrl);
+        connect();
+      }
+
+      async function connect() {
+        if (!state.supabaseUrl || !state.supabaseKey) {
+          setStatus('Vul je Supabase URL en anon key in.');
+          return;
+        }
+
+        try {
+          state.client = window.supabase.createClient(state.supabaseUrl, state.supabaseKey);
+          setStatus('Verbinden…');
+          const { data: sessionData, error: sessionError } = await state.client.auth.signInAnonymously();
+          if (sessionError) throw sessionError;
+          state.userId = sessionData?.session?.user?.id || null;
+          if (!state.userId) throw new Error('Geen user sessie');
+
+          const { data: logData, error: logError } = await state.client.from('drink_log').select('*').eq('user_id', state.userId).order('logged_at', { ascending: false });
+          if (logError) throw logError;
+          state.entries = (logData || []).filter((entry) => !entry.deleted_at).map((entry) => ({ id: entry.id, amount: entry.amount_ml, source: entry.source, time: new Date(entry.logged_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }));
+          await ensureDefaults();
+          setStatus('Verbonden met Supabase');
+          render();
+        } catch (error) {
+          setStatus(error.message || 'Kon niet verbinden');
+        }
+      }
+
+      async function addEntry(amount, source) {
+        if (!state.client || !state.userId) {
+          setStatus('Maak eerst verbinding met Supabase');
+          return;
+        }
+
+        const id = crypto.randomUUID();
+        const loggedAt = new Date().toISOString();
+        const { error } = await state.client.from('drink_log').insert({
+          id,
+          user_id: state.userId,
+          amount_ml: amount,
+          source,
+          logged_at: loggedAt
+        });
+
+        if (error) {
+          setStatus(`Fout: ${error.message}`);
+          return;
+        }
+
+        const time = new Date(loggedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        state.entries.unshift({ id, amount, source, time });
+        saveState();
+        render();
+        setStatus(`Gelogd: ${amount} ml`);
+      }
+
+      async function undoLast() {
+        if (!state.client || !state.userId || state.entries.length === 0) return;
+        const latest = state.entries[0];
+        const { error } = await state.client.from('drink_log').update({ deleted_at: new Date().toISOString() }).eq('id', latest.id);
+        if (error) {
+          setStatus(`Undo fout: ${error.message}`);
+          return;
+        }
+        state.entries.shift();
+        saveState();
+        render();
+        setStatus('Laatste entry verwijderd');
+      }
+
+      document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
+      document.getElementById('logCustomBtn').addEventListener('click', () => {
+        const amount = Number(document.getElementById('customAmount').value);
+        if (!Number.isFinite(amount) || amount <= 0) return;
+        addEntry(amount, 'manual');
+      });
+      document.getElementById('undoBtn').addEventListener('click', undoLast);
+      document.querySelectorAll('button[data-amount]').forEach((button) => {
+        button.addEventListener('click', () => {
+          addEntry(Number(button.dataset.amount), button.dataset.source || 'ui');
+        });
+      });
+
+      const persistedState = loadState();
+      state.entries = persistedState.entries;
+      state.target = persistedState.target;
+      restoreConfig();
+      render();
+      if (state.supabaseUrl && state.supabaseKey) {
+        connect();
+      }
+
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      }
+    </script>
+  </body>
+</html>
