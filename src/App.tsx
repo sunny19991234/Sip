@@ -242,17 +242,19 @@ export default function App() {
   };
 
   const saveSettings = async () => {
-    if (!supabaseUrl || !supabaseAnonKey) {
+    const normalizedUrl = normalizeSupabaseUrl(supabaseUrl);
+    if (!normalizedUrl || !supabaseAnonKey) {
       setStatus('Vul een geldige Supabase URL en anon key in.');
       return;
     }
 
     if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_URL_KEY, supabaseUrl);
+      localStorage.setItem(STORAGE_URL_KEY, normalizedUrl);
       localStorage.setItem(STORAGE_KEY_KEY, supabaseAnonKey);
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    setSupabaseUrl(normalizedUrl);
+    const supabase = createClient(normalizedUrl, supabaseAnonKey);
     setClient(supabase);
     setStatus('Opslaan en verbinden…');
 

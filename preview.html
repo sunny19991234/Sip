@@ -357,8 +357,22 @@
         document.getElementById('supabaseKeyInput').value = state.supabaseKey;
       }
 
+      function normalizeSupabaseUrl(value) {
+        const trimmed = value.trim();
+        if (!trimmed) return '';
+        try {
+          const url = new URL(trimmed);
+          url.pathname = '/';
+          url.search = '';
+          url.hash = '';
+          return url.toString().replace(/\/+$/, '');
+        } catch {
+          return trimmed.replace(/\/+$/, '');
+        }
+      }
+
       function saveConfig() {
-        state.supabaseUrl = document.getElementById('supabaseUrlInput').value.trim();
+        state.supabaseUrl = normalizeSupabaseUrl(document.getElementById('supabaseUrlInput').value);
         state.supabaseKey = document.getElementById('supabaseKeyInput').value.trim();
         localStorage.setItem(CONFIG_URL_KEY, state.supabaseUrl);
         localStorage.setItem(CONFIG_KEY_KEY, state.supabaseKey);
