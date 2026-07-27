@@ -294,6 +294,45 @@ export default function App() {
         </div>
       </header>
 
+      <section className="card" id="settingsSection">
+        <p className="section-title">Instellingen</p>
+        <div className="field">
+          <label htmlFor="urlInput">Supabase URL</label>
+          <input
+            id="urlInput"
+            type="url"
+            placeholder="https://<project>.supabase.co"
+            value={supabaseUrl}
+            onChange={(event) => setSupabaseUrl(event.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="keyInput">Supabase anon key</label>
+          <input
+            id="keyInput"
+            type="text"
+            placeholder="anon key"
+            value={supabaseAnonKey}
+            onChange={(event) => setSupabaseAnonKey(event.target.value)}
+            autoComplete="off"
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="targetInput">Dagdoel (ml)</label>
+          <input
+            id="targetInput"
+            type="number"
+            min="500"
+            step="50"
+            value={target}
+            onChange={(event) => setTarget(Number(event.target.value))}
+          />
+        </div>
+        <button type="button" className="button primary" onClick={saveSettings}>
+          Opslaan
+        </button>
+      </section>
+
       <section className="hero-card">
         <div className="hero-stats">
           <p className="hero-title">Dagdoel</p>
@@ -324,43 +363,6 @@ export default function App() {
             </button>
           )}
         </div>
-      </section>
-
-      <section className="card" id="settingsSection">
-        <p className="section-title">Instellingen</p>
-        <div className="field">          <label htmlFor="urlInput">Supabase URL</label>
-          <input
-            id="urlInput"
-            type="url"
-            placeholder="https://<project>.supabase.co"
-            value={supabaseUrl}
-            onChange={(event) => setSupabaseUrl(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="keyInput">Supabase anon key</label>
-          <input
-            id="keyInput"
-            type="text"
-            placeholder="anon key"
-            value={supabaseAnonKey}
-            onChange={(event) => setSupabaseAnonKey(event.target.value)}
-            autoComplete="off"
-          />
-        </div>
-        <div className="field">          <label htmlFor="targetInput">Dagdoel (ml)</label>
-          <input
-            id="targetInput"
-            type="number"
-            min="500"
-            step="50"
-            value={target}
-            onChange={(event) => setTarget(Number(event.target.value))}
-          />
-        </div>
-        <button type="button" className="button primary" onClick={saveSettings}>
-          Opslaan
-        </button>
       </section>
 
       <section className="card">
