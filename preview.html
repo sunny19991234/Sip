@@ -148,6 +148,10 @@
           <div class="buttons">
             <button class="secondary" id="saveConfigBtn">Opslaan en verbinden</button>
           </div>
+          <div class="field">
+            <input id="authEmailInput" placeholder="Email voor login" />
+            <button class="ghost" id="sendMagicLinkBtn">Stuur login link</button>
+          </div>
         </div>
         <p id="statusText" class="status">Nog niet verbonden.</p>
       </div>
@@ -393,9 +397,20 @@
         try {
           state.client = window.supabase.createClient(state.supabaseUrl, state.supabaseKey);
           setStatus('Verbinden…');
-          const { data: sessionData, error: sessionError } = await state.client.auth.signInAnonymously();
+          const { data: sessionData, error: sessionError } = await state.client.auth.getSession();
           if (sessionError) throw sessionError;
-          state.userId = sessionData?.session?.user?.id || null;
+
+          let session = sessionData.session;
+          if (!session) {
+            const { data: signInData, error: signInError } = await state.client.auth.signInAnonymously();
+            if (signInError) {
+              setStatus('Anonymous sign-in is uitgeschakeld. Gebruik magic link login hieronder.');
+              return;
+            }
+            session = signInData.session;
+          }
+
+          state.userId = session?.user?.id || null;
           if (!state.userId) throw new Error('Geen user sessie');
 
           const { data: logData, error: logError } = await state.client.from('drink_log').select('*').eq('user_id', state.userId).order('logged_at', { ascending: false });
@@ -406,6 +421,28 @@
           render();
         } catch (error) {
           setStatus(error.message || 'Kon niet verbinden');
+        }
+      }
+
+      async function sendMagicLink() {
+        const email = document.getElementById('authEmailInput').value.trim();
+        if (!email) {
+          setStatus('Vul eerst een e-mailadres in.');
+          return;
+        }
+
+        if (!state.supabaseUrl || !state.supabaseKey) {
+          setStatus('Vul eerst Supabase URL en anon key in.');
+          return;
+        }
+
+        try {
+          state.client = window.supabase.createClient(state.supabaseUrl, state.supabaseKey);
+          const { error } = await state.client.auth.signInWithOtp({ email });
+          if (error) throw error;
+          setStatus('Magic link verstuurd naar ' + email);
+        } catch (error) {
+          setStatus(error.message || 'Kon magic link niet versturen');
         }
       }
 
@@ -452,6 +489,7 @@
       }
 
       document.getElementById('saveConfigBtn').addEventListener('click', saveConfig);
+      document.getElementById('sendMagicLinkBtn').addEventListener('click', sendMagicLink);
       document.getElementById('logCustomBtn').addEventListener('click', () => {
         const amount = Number(document.getElementById('customAmount').value);
         if (!Number.isFinite(amount) || amount <= 0) return;
