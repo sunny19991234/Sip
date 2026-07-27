@@ -53,6 +53,23 @@ type DailyIntakeRow = {
 const supabaseUrlEnv = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKeyEnv = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+function normalizeSupabaseUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  try {
+    const url = new URL(trimmed);
+    if (!url.hostname.endsWith('.supabase.co')) {
+      return trimmed.replace(/\/+$/, '');
+    }
+    url.pathname = '/';
+    url.search = '';
+    url.hash = '';
+    return url.toString().replace(/\/+$/, '');
+  } catch {
+    return trimmed.replace(/\/+$/, '');
+  }
+}
+
 function toAmsterdamDateString(date: Date) {
   return date.toLocaleDateString('nl-NL', { timeZone: 'Europe/Amsterdam' });
 }
@@ -78,7 +95,7 @@ export default function App() {
   useEffect(() => {
     const storedUrl = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_URL_KEY) : '';
     const storedKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_KEY) : '';
-    const effectiveUrl = supabaseUrl || storedUrl || '';
+    const effectiveUrl = normalizeSupabaseUrl(supabaseUrl || storedUrl || '');
     const effectiveKey = supabaseAnonKey || storedKey || '';
 
     setSupabaseUrl(effectiveUrl);
