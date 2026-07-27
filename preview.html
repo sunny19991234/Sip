@@ -397,10 +397,19 @@
         try {
           state.client = window.supabase.createClient(state.supabaseUrl, state.supabaseKey);
           setStatus('Verbinden…');
+
           const { data: sessionData, error: sessionError } = await state.client.auth.getSession();
           if (sessionError) throw sessionError;
 
           let session = sessionData.session;
+          if (!session && window.location.search.includes('access_token')) {
+            const { data: urlSessionData, error: urlSessionError } = await state.client.auth.getSessionFromUrl();
+            if (urlSessionError) {
+              throw urlSessionError;
+            }
+            session = urlSessionData.session;
+          }
+
           if (!session) {
             const { data: signInData, error: signInError } = await state.client.auth.signInAnonymously();
             if (signInError) {
