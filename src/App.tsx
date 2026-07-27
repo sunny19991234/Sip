@@ -3,6 +3,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import './App.css';
 
 const DEFAULT_TARGET = 3000;
+const STORAGE_URL_KEY = 'sip-supabase-url';
+const STORAGE_KEY_KEY = 'sip-supabase-key';
 const DEFAULT_CONTAINERS = [
   { name: 'Glas', volume_ml: 250, sort_order: 1, is_nfc_default: false },
   { name: 'Fles', volume_ml: 750, sort_order: 2, is_nfc_default: true },
@@ -48,8 +50,8 @@ type DailyIntakeRow = {
   goal_met: boolean;
 };
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const supabaseUrlEnv = import.meta.env.VITE_SUPABASE_URL || '';
+const supabaseAnonKeyEnv = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 function toAmsterdamDateString(date: Date) {
   return date.toLocaleDateString('nl-NL', { timeZone: 'Europe/Amsterdam' });
@@ -70,14 +72,24 @@ export default function App() {
   const [target, setTarget] = useState(DEFAULT_TARGET);
   const [status, setStatus] = useState('Loading…');
   const [customAmount, setCustomAmount] = useState('250');
+  const [supabaseUrl, setSupabaseUrl] = useState(supabaseUrlEnv);
+  const [supabaseAnonKey, setSupabaseAnonKey] = useState(supabaseAnonKeyEnv);
 
   useEffect(() => {
-    if (!supabaseUrl || !supabaseAnonKey) {
-      setStatus('Vul VITE_SUPABASE_URL en VITE_SUPABASE_ANON_KEY in.');
+    const storedUrl = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_URL_KEY) : '';
+    const storedKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_KEY) : '';
+    const effectiveUrl = supabaseUrl || storedUrl || '';
+    const effectiveKey = supabaseAnonKey || storedKey || '';
+
+    setSupabaseUrl(effectiveUrl);
+    setSupabaseAnonKey(effectiveKey);
+
+    if (!effectiveUrl || !effectiveKey) {
+      setStatus('Vul je Supabase URL en anon key in in de instellingen.');
       return;
     }
 
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    const supabase = createClient(effectiveUrl, effectiveKey);
     setClient(supabase);
 
     const load = async () => {
@@ -96,6 +108,10 @@ export default function App() {
         if (!currentUserId) throw new Error('Geen actieve Supabase-sessie.');
         setUserId(currentUserId);
 
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(STORAGE_URL_KEY, effectiveUrl);
+          localStorage.setItem(STORAGE_KEY_KEY, effectiveKey);
+        }
         await ensureDefaults(supabase, currentUserId);
         await refreshData(supabase, currentUserId);
       } catch (error) {
@@ -208,31 +224,60 @@ export default function App() {
     await addLog(amount, 'manual');
   };
 
-  const saveTarget = async () => {
-    if (!client || !userId) {
-      setStatus('Geen verbinding met Supabase.');
+  const saveSettings = async () => {
+    if (!supabaseUrl || !supabaseAnonKey) {
+      setStatus('Vul een geldige Supabase URL en anon key in.');
       return;
     }
 
-    const { error } = await client.from('settings').upsert({
-      user_id: userId,
-      daily_target_ml: target,
-      day_start_hour: settings?.day_start_hour ?? DEFAULT_SETTINGS.day_start_hour,
-      timezone: settings?.timezone ?? DEFAULT_SETTINGS.timezone
-    }, { onConflict: ['user_id'] });
-
-    if (error) {
-      setStatus(`Fout bij opslaan: ${error.message}`);
-      return;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_URL_KEY, supabaseUrl);
+      localStorage.setItem(STORAGE_KEY_KEY, supabaseAnonKey);
     }
 
-    setSettings((current) => ({
-      user_id: userId,
-      daily_target_ml: target,
-      day_start_hour: current?.day_start_hour ?? DEFAULT_SETTINGS.day_start_hour,
-      timezone: current?.timezone ?? DEFAULT_SETTINGS.timezone
-    }));
-    setStatus('Dagdoel opgeslagen');
+    const supabase = createClient(supabaseUrl, supabaseAnonKey);
+    setClient(supabase);
+    setStatus('Opslaan en verbinden…');
+
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+
+      let session = sessionData.session;
+      if (!session) {
+        const { data: signInData, error: signInError } = await supabase.auth.signInAnonymously();
+        if (signInError) throw signInError;
+        session = signInData.session;
+      }
+
+      const currentUserId = session?.user?.id;
+      if (!currentUserId) throw new Error('Geen actieve Supabase-sessie.');
+      setUserId(currentUserId);
+
+      await ensureDefaults(supabase, currentUserId);
+      await refreshData(supabase, currentUserId);
+
+      const { error } = await supabase.from('settings').upsert({
+        user_id: currentUserId,
+        daily_target_ml: target,
+        day_start_hour: settings?.day_start_hour ?? DEFAULT_SETTINGS.day_start_hour,
+        timezone: settings?.timezone ?? DEFAULT_SETTINGS.timezone
+      }, { onConflict: ['user_id'] });
+
+      if (error) {
+        throw error;
+      }
+
+      setSettings((current) => ({
+        user_id: currentUserId,
+        daily_target_ml: target,
+        day_start_hour: current?.day_start_hour ?? DEFAULT_SETTINGS.day_start_hour,
+        timezone: current?.timezone ?? DEFAULT_SETTINGS.timezone
+      }));
+      setStatus('Instellingen opgeslagen');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Onbekende fout bij opslaan');
+    }
   };
 
   return (
@@ -283,8 +328,27 @@ export default function App() {
 
       <section className="card" id="settingsSection">
         <p className="section-title">Instellingen</p>
+        <div className="field">          <label htmlFor="urlInput">Supabase URL</label>
+          <input
+            id="urlInput"
+            type="url"
+            placeholder="https://<project>.supabase.co"
+            value={supabaseUrl}
+            onChange={(event) => setSupabaseUrl(event.target.value)}
+          />
+        </div>
         <div className="field">
-          <label htmlFor="targetInput">Dagdoel (ml)</label>
+          <label htmlFor="keyInput">Supabase anon key</label>
+          <input
+            id="keyInput"
+            type="text"
+            placeholder="anon key"
+            value={supabaseAnonKey}
+            onChange={(event) => setSupabaseAnonKey(event.target.value)}
+            autoComplete="off"
+          />
+        </div>
+        <div className="field">          <label htmlFor="targetInput">Dagdoel (ml)</label>
           <input
             id="targetInput"
             type="number"
@@ -294,7 +358,7 @@ export default function App() {
             onChange={(event) => setTarget(Number(event.target.value))}
           />
         </div>
-        <button type="button" className="button primary" onClick={saveTarget}>
+        <button type="button" className="button primary" onClick={saveSettings}>
           Opslaan
         </button>
       </section>
