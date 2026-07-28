@@ -1,7 +1,7 @@
 {
   "name": "Sip",
   "short_name": "Sip",
-  "start_url": "./preview.html",
+  "start_url": ".",
   "display": "standalone",
   "background_color": "#f5f7fb",
   "theme_color": "#0f172a",

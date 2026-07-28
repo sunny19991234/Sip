@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import './App.css';
+import TabBar, { TabId } from './components/TabBar';
+import HomeScreen from './screens/HomeScreen';
+import StatsScreen from './screens/StatsScreen';
+import SettingsScreen from './screens/SettingsScreen';
+import { Container, DailyIntakeRow, DrinkLogRow, SettingsRow } from './types';
 
 const DEFAULT_TARGET = 3000;
 const STORAGE_URL_KEY = 'sip-supabase-url';
@@ -15,39 +19,6 @@ const DEFAULT_SETTINGS = {
   daily_target_ml: DEFAULT_TARGET,
   day_start_hour: 4,
   timezone: 'Europe/Amsterdam'
-};
-
-type Container = {
-  id: string;
-  user_id: string;
-  name: string;
-  volume_ml: number;
-  sort_order: number;
-  is_nfc_default: boolean;
-};
-
-type DrinkLogRow = {
-  id: string;
-  user_id: string;
-  amount_ml: number;
-  source: string;
-  logged_at: string;
-  deleted_at?: string | null;
-};
-
-type SettingsRow = {
-  user_id: string;
-  daily_target_ml: number;
-  day_start_hour: number;
-  timezone: string;
-};
-
-type DailyIntakeRow = {
-  user_id: string;
-  day: string;
-  total_ml: number;
-  target_ml: number;
-  goal_met: boolean;
 };
 
 const supabaseUrlEnv = import.meta.env.VITE_SUPABASE_URL || '';
@@ -80,6 +51,7 @@ function isTodayInAmsterdam(timestamp: string) {
 }
 
 export default function App() {
+  const [tab, setTab] = useState<TabId>('home');
   const [client, setClient] = useState<SupabaseClient | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [containers, setContainers] = useState<Container[]>([]);
@@ -166,9 +138,20 @@ export default function App() {
   const refreshData = async (supabase: SupabaseClient, currentUserId: string) => {
     setStatus('Laden…');
 
-    const [{ data: containerData, error: containerError }, { data: logData, error: logError }, { data: settingsData, error: settingsError }, { data: historyData, error: historyError }] = await Promise.all([
+    const [
+      { data: containerData, error: containerError },
+      { data: logData, error: logError },
+      { data: settingsData, error: settingsError },
+      { data: historyData, error: historyError }
+    ] = await Promise.all([
       supabase.from('containers').select('*').eq('user_id', currentUserId).order('sort_order'),
-      supabase.from('drink_log').select('*').eq('user_id', currentUserId).is('deleted_at', null).order('logged_at', { ascending: false }).limit(30),
+      supabase
+        .from('drink_log')
+        .select('*')
+        .eq('user_id', currentUserId)
+        .is('deleted_at', null)
+        .order('logged_at', { ascending: false })
+        .limit(30),
       supabase.from('settings').select('*').eq('user_id', currentUserId).maybeSingle(),
       supabase.from('daily_intake').select('*').eq('user_id', currentUserId).order('day', { ascending: false }).limit(7)
     ]);
@@ -276,12 +259,15 @@ export default function App() {
       await ensureDefaults(supabase, currentUserId);
       await refreshData(supabase, currentUserId);
 
-      const { error } = await supabase.from('settings').upsert({
-        user_id: currentUserId,
-        daily_target_ml: target,
-        day_start_hour: settings?.day_start_hour ?? DEFAULT_SETTINGS.day_start_hour,
-        timezone: settings?.timezone ?? DEFAULT_SETTINGS.timezone
-      }, { onConflict: ['user_id'] });
+      const { error } = await supabase.from('settings').upsert(
+        {
+          user_id: currentUserId,
+          daily_target_ml: target,
+          day_start_hour: settings?.day_start_hour ?? DEFAULT_SETTINGS.day_start_hour,
+          timezone: settings?.timezone ?? DEFAULT_SETTINGS.timezone
+        },
+        { onConflict: ['user_id'] }
+      );
 
       if (error) {
         throw error;
@@ -300,136 +286,37 @@ export default function App() {
   };
 
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div>
-          <p className="eyebrow">Today&apos;s water</p>
-          <h1 className="title">{totalToday} ml</h1>
-          <p className="hero-subtitle">{progress}% van {target} ml</p>
-        </div>
-        <div>
-          <button className="settings-btn" type="button" aria-label="Instellingen" onClick={() => document.getElementById('settingsSection')?.scrollIntoView({ behavior: 'smooth' })}>⚙</button>
-          <p className="footer-note">{status}</p>
-        </div>
-      </header>
+    <div className="mx-auto min-h-screen max-w-[520px] px-4 pb-28 pt-6">
+      {tab === 'home' && (
+        <HomeScreen
+          target={target}
+          totalToday={totalToday}
+          remaining={remaining}
+          progress={progress}
+          containers={containers}
+          logs={logs}
+          customAmount={customAmount}
+          onCustomAmountChange={setCustomAmount}
+          onLog={addLog}
+          onCustomLog={handleCustomLog}
+          onUndo={undoLast}
+        />
+      )}
+      {tab === 'stats' && <StatsScreen history={history} />}
+      {tab === 'settings' && (
+        <SettingsScreen
+          supabaseUrl={supabaseUrl}
+          supabaseAnonKey={supabaseAnonKey}
+          target={target}
+          status={status}
+          onSupabaseUrlChange={setSupabaseUrl}
+          onSupabaseAnonKeyChange={setSupabaseAnonKey}
+          onTargetChange={setTarget}
+          onSave={saveSettings}
+        />
+      )}
 
-      <section className="card" id="settingsSection">
-        <p className="section-title">Instellingen</p>
-        <div className="field">
-          <label htmlFor="urlInput">Supabase URL</label>
-          <input
-            id="urlInput"
-            type="url"
-            placeholder="https://<project>.supabase.co"
-            value={supabaseUrl}
-            onChange={(event) => setSupabaseUrl(event.target.value)}
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="keyInput">Supabase anon key</label>
-          <input
-            id="keyInput"
-            type="text"
-            placeholder="anon key"
-            value={supabaseAnonKey}
-            onChange={(event) => setSupabaseAnonKey(event.target.value)}
-            autoComplete="off"
-          />
-        </div>
-        <div className="field">
-          <label htmlFor="targetInput">Dagdoel (ml)</label>
-          <input
-            id="targetInput"
-            type="number"
-            min="500"
-            step="50"
-            value={target}
-            onChange={(event) => setTarget(Number(event.target.value))}
-          />
-        </div>
-        <button type="button" className="button primary" onClick={saveSettings}>
-          Opslaan
-        </button>
-      </section>
-
-      <section className="hero-card">
-        <div className="hero-stats">
-          <p className="hero-title">Dagdoel</p>
-          <p className="hero-value">{target} ml</p>
-          <p className="hero-subtitle">Nog {remaining} ml te drinken</p>
-        </div>
-        <div className="water-card" aria-hidden="true">
-          <div className="water-wave" />
-          <div className="water-fill" style={{ height: `${progress}%` }} />
-        </div>
-      </section>
-
-      <section className="card">
-        <p className="section-title">Snel loggen</p>
-        <div className="button-grid">
-          {containers.length > 0 ? containers.map((container) => (
-            <button
-              key={container.id}
-              type="button"
-              className="button primary"
-              onClick={() => addLog(container.volume_ml, 'ui')}
-            >
-              {container.volume_ml} ml
-            </button>
-          )) : (
-            <button type="button" className="button secondary" disabled>
-              Laden...
-            </button>
-          )}
-        </div>
-      </section>
-
-      <section className="card">
-        <p className="section-title">Historie</p>
-        {history.length > 0 ? (
-          <ul className="history-list">
-            {history.map((day) => (
-              <li key={day.day} className="history-item">
-                <strong>{new Date(day.day).toLocaleDateString('nl-NL', { weekday: 'short', day: 'numeric', month: 'numeric' })}</strong>
-                <div className="item-meta">
-                  <span>{day.total_ml} ml</span>
-                  <span>{day.goal_met ? 'Voltooid' : 'Open'}</span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="footer-note">Geen historie beschikbaar.</p>
-        )}
-      </section>
-
-      <section className="card">
-        <p className="section-title">Recente entries</p>
-        {logs.length > 0 ? (
-          <>
-            <button type="button" className="button secondary" onClick={undoLast}>
-              Undo laatste
-            </button>
-            <ul className="recent-list">
-              {logs.map((entry) => (
-                <li key={entry.id} className="recent-item">
-                  <strong>{entry.amount_ml} ml</strong>
-                  <div className="item-meta">
-                    <span>{entry.source}</span>
-                    <span>{new Date(entry.logged_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : (
-          <p className="footer-note">Nog geen entries voor vandaag.</p>
-        )}
-      </section>
-
-      <section className="footer-note">
-        Deze app gebruikt Supabase voor historie en instellingen.
-      </section>
+      <TabBar active={tab} onChange={setTab} />
     </div>
   );
 }
