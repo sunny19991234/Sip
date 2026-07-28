@@ -31,6 +31,15 @@ export function ChartIcon({ className }: IconProps) {
   );
 }
 
+export function CloseIcon({ className }: IconProps) {
+  return (
+    <svg className={className} {...commonProps} aria-hidden="true">
+      <path d="M6 6l12 12" />
+      <path d="M18 6 6 18" />
+    </svg>
+  );
+}
+
 export function SlidersIcon({ className }: IconProps) {
   return (
     <svg className={className} {...commonProps} aria-hidden="true">

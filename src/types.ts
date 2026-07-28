@@ -22,6 +22,15 @@ export type SettingsRow = {
   day_start_hour: number;
   timezone: string;
   gamification_enabled: boolean;
+  reminders_enabled: boolean;
+};
+
+export type ReminderRule = {
+  id: string;
+  user_id: string;
+  at_time: string;
+  expected_ml: number | null;
+  enabled: boolean;
 };
 
 export type DailyIntakeRow = {

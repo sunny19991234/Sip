@@ -4,11 +4,9 @@ import TabBar, { TabId } from './components/TabBar';
 import HomeScreen from './screens/HomeScreen';
 import StatsScreen from './screens/StatsScreen';
 import SettingsScreen from './screens/SettingsScreen';
-import { Container, DailyIntakeRow, DrinkLogRow, SettingsRow } from './types';
+import { Container, DailyIntakeRow, DrinkLogRow, ReminderRule, SettingsRow } from './types';
 
 const DEFAULT_TARGET = 3000;
-const STORAGE_URL_KEY = 'sip-supabase-url';
-const STORAGE_KEY_KEY = 'sip-supabase-key';
 const DEFAULT_CONTAINERS = [
   { name: 'Glas', volume_ml: 250, sort_order: 1, is_nfc_default: false },
   { name: 'Fles', volume_ml: 750, sort_order: 2, is_nfc_default: true },
@@ -19,20 +17,15 @@ const DEFAULT_SETTINGS = {
   daily_target_ml: DEFAULT_TARGET,
   day_start_hour: 4,
   timezone: 'Europe/Amsterdam',
-  gamification_enabled: false
+  gamification_enabled: false,
+  reminders_enabled: false
 };
-
-const supabaseUrlEnv = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseAnonKeyEnv = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 function normalizeSupabaseUrl(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return '';
   try {
     const url = new URL(trimmed);
-    if (!url.hostname.endsWith('.supabase.co')) {
-      return trimmed.replace(/\/+$/, '');
-    }
     url.pathname = '/';
     url.search = '';
     url.hash = '';
@@ -41,6 +34,9 @@ function normalizeSupabaseUrl(value: string) {
     return trimmed.replace(/\/+$/, '');
   }
 }
+
+const SUPABASE_URL = normalizeSupabaseUrl(import.meta.env.VITE_SUPABASE_URL || '');
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
 function toAmsterdamDateString(date: Date) {
   return date.toLocaleDateString('nl-NL', { timeZone: 'Europe/Amsterdam' });
@@ -86,46 +82,35 @@ function computeStreak(history: DailyIntakeRow[], todayIso: string) {
 
 export default function App() {
   const [tab, setTab] = useState<TabId>('home');
-  const [client, setClient] = useState<SupabaseClient | null>(null);
+  const [client] = useState<SupabaseClient | null>(() =>
+    SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null
+  );
   const [userId, setUserId] = useState<string | null>(null);
   const [containers, setContainers] = useState<Container[]>([]);
   const [logs, setLogs] = useState<DrinkLogRow[]>([]);
   const [history, setHistory] = useState<DailyIntakeRow[]>([]);
   const [settings, setSettings] = useState<SettingsRow | null>(null);
-  const [target, setTarget] = useState(DEFAULT_TARGET);
-  const [gamificationEnabled, setGamificationEnabled] = useState(DEFAULT_SETTINGS.gamification_enabled);
+  const [reminderRules, setReminderRules] = useState<ReminderRule[]>([]);
   const [status, setStatus] = useState('Loading…');
+  const [settingsError, setSettingsError] = useState('');
   const [customAmount, setCustomAmount] = useState('250');
-  const [supabaseUrl, setSupabaseUrl] = useState(supabaseUrlEnv);
-  const [supabaseAnonKey, setSupabaseAnonKey] = useState(supabaseAnonKeyEnv);
   const [showUndo, setShowUndo] = useState(false);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const storedUrl = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_URL_KEY) : '';
-    const storedKey = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_KEY_KEY) : '';
-    const effectiveUrl = normalizeSupabaseUrl(supabaseUrl || storedUrl || '');
-    const effectiveKey = supabaseAnonKey || storedKey || '';
-
-    setSupabaseUrl(effectiveUrl);
-    setSupabaseAnonKey(effectiveKey);
-
-    if (!effectiveUrl || !effectiveKey) {
-      setStatus('Vul je Supabase URL en anon key in in de instellingen.');
+    if (!client) {
+      setStatus('Supabase-omgevingsvariabelen ontbreken (VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY).');
       return;
     }
 
-    const supabase = createClient(effectiveUrl, effectiveKey);
-    setClient(supabase);
-
     const load = async () => {
       try {
-        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+        const { data: sessionData, error: sessionError } = await client.auth.getSession();
         if (sessionError) throw sessionError;
 
         let session = sessionData.session;
         if (!session) {
-          const { data: signInData, error: signInError } = await supabase.auth.signInAnonymously();
+          const { data: signInData, error: signInError } = await client.auth.signInAnonymously();
           if (signInError) throw signInError;
           session = signInData.session;
         }
@@ -134,19 +119,15 @@ export default function App() {
         if (!currentUserId) throw new Error('Geen actieve Supabase-sessie.');
         setUserId(currentUserId);
 
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(STORAGE_URL_KEY, effectiveUrl);
-          localStorage.setItem(STORAGE_KEY_KEY, effectiveKey);
-        }
-        await ensureDefaults(supabase, currentUserId);
-        await refreshData(supabase, currentUserId);
+        await ensureDefaults(client, currentUserId);
+        await refreshData(client, currentUserId);
       } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Onbekende fout');
       }
     };
 
     load();
-  }, []);
+  }, [client]);
 
   const ensureDefaults = async (supabase: SupabaseClient, currentUserId: string) => {
     const [{ data: settingsData }, { data: containerData }] = await Promise.all([
@@ -178,8 +159,9 @@ export default function App() {
     const [
       { data: containerData, error: containerError },
       { data: logData, error: logError },
-      { data: settingsData, error: settingsError },
-      { data: historyData, error: historyError }
+      { data: settingsData, error: settingsFetchError },
+      { data: historyData, error: historyError },
+      { data: reminderData, error: reminderError }
     ] = await Promise.all([
       supabase.from('containers').select('*').eq('user_id', currentUserId).order('sort_order'),
       supabase
@@ -190,21 +172,25 @@ export default function App() {
         .order('logged_at', { ascending: false })
         .limit(30),
       supabase.from('settings').select('*').eq('user_id', currentUserId).maybeSingle(),
-      supabase.from('daily_intake').select('*').eq('user_id', currentUserId).order('day', { ascending: false }).limit(60)
+      supabase.from('daily_intake').select('*').eq('user_id', currentUserId).order('day', { ascending: false }).limit(60),
+      supabase.from('reminder_rules').select('*').eq('user_id', currentUserId).order('at_time')
     ]);
 
-    if (containerError || logError || settingsError || historyError) {
-      throw containerError || logError || settingsError || historyError;
+    if (containerError || logError || settingsFetchError || historyError || reminderError) {
+      throw containerError || logError || settingsFetchError || historyError || reminderError;
     }
 
     setContainers(containerData || []);
     setLogs(((logData || []) as DrinkLogRow[]).filter((entry) => isTodayInAmsterdam(entry.logged_at)));
     setSettings(settingsData as SettingsRow | null);
-    setTarget(settingsData?.daily_target_ml ?? DEFAULT_TARGET);
-    setGamificationEnabled(settingsData?.gamification_enabled ?? DEFAULT_SETTINGS.gamification_enabled);
     setHistory((historyData || []) as DailyIntakeRow[]);
+    setReminderRules((reminderData || []) as ReminderRule[]);
     setStatus('Verbonden');
   };
+
+  const target = settings?.daily_target_ml ?? DEFAULT_TARGET;
+  const gamificationEnabled = settings?.gamification_enabled ?? DEFAULT_SETTINGS.gamification_enabled;
+  const remindersEnabled = settings?.reminders_enabled ?? DEFAULT_SETTINGS.reminders_enabled;
 
   const totalToday = useMemo(() => logs.reduce((sum, row) => sum + row.amount_ml, 0), [logs]);
   const progress = Math.min(Math.round((totalToday / target) * 100), 100);
@@ -275,66 +261,98 @@ export default function App() {
     await addLog(amount, 'manual');
   };
 
-  const saveSettings = async () => {
-    const normalizedUrl = normalizeSupabaseUrl(supabaseUrl);
-    if (!normalizedUrl || !supabaseAnonKey) {
-      setStatus('Vul een geldige Supabase URL en anon key in.');
-      return;
+  const updateSettings = async (patch: Partial<Pick<SettingsRow, 'daily_target_ml' | 'gamification_enabled' | 'reminders_enabled'>>) => {
+    if (!client || !userId || !settings) return;
+    const previous = settings;
+    setSettings({ ...settings, ...patch });
+    const { error } = await client.from('settings').update(patch).eq('user_id', userId);
+    if (error) {
+      setSettings(previous);
+      setSettingsError(`Opslaan mislukt: ${error.message}`);
+    } else {
+      setSettingsError('');
     }
+  };
 
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(STORAGE_URL_KEY, normalizedUrl);
-      localStorage.setItem(STORAGE_KEY_KEY, supabaseAnonKey);
+  const handleTargetStep = (delta: number) => {
+    const next = Math.max(100, target + delta);
+    updateSettings({ daily_target_ml: next });
+  };
+
+  const addContainer = async (name: string, volumeMl: number) => {
+    if (!client || !userId) return;
+    const id = crypto.randomUUID();
+    const sortOrder = containers.length > 0 ? Math.max(...containers.map((c) => c.sort_order ?? 0)) + 1 : 1;
+    const newContainer: Container = {
+      id,
+      user_id: userId,
+      name,
+      volume_ml: volumeMl,
+      sort_order: sortOrder,
+      is_nfc_default: false
+    };
+    setContainers((current) => [...current, newContainer]);
+    const { error } = await client.from('containers').insert(newContainer);
+    if (error) {
+      setContainers((current) => current.filter((c) => c.id !== id));
+      setSettingsError(`Toevoegen mislukt: ${error.message}`);
+    } else {
+      setSettingsError('');
     }
+  };
 
-    setSupabaseUrl(normalizedUrl);
-    const supabase = createClient(normalizedUrl, supabaseAnonKey);
-    setClient(supabase);
-    setStatus('Opslaan en verbinden…');
+  const removeContainer = async (id: string) => {
+    if (!client) return;
+    const previous = containers;
+    setContainers((current) => current.filter((c) => c.id !== id));
+    const { error } = await client.from('containers').delete().eq('id', id);
+    if (error) {
+      setContainers(previous);
+      setSettingsError(`Verwijderen mislukt: ${error.message}`);
+    } else {
+      setSettingsError('');
+    }
+  };
 
-    try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) throw sessionError;
+  const addReminderRule = async (atTime: string) => {
+    if (!client || !userId) return;
+    const id = crypto.randomUUID();
+    const newRule: ReminderRule = { id, user_id: userId, at_time: atTime, expected_ml: null, enabled: true };
+    setReminderRules((current) => [...current, newRule].sort((a, b) => a.at_time.localeCompare(b.at_time)));
+    const { error } = await client.from('reminder_rules').insert(newRule);
+    if (error) {
+      setReminderRules((current) => current.filter((r) => r.id !== id));
+      setSettingsError(`Toevoegen mislukt: ${error.message}`);
+    } else {
+      setSettingsError('');
+    }
+  };
 
-      let session = sessionData.session;
-      if (!session) {
-        const { data: signInData, error: signInError } = await supabase.auth.signInAnonymously();
-        if (signInError) throw signInError;
-        session = signInData.session;
-      }
+  const updateReminderRule = async (id: string, atTime: string) => {
+    if (!client) return;
+    const previous = reminderRules;
+    setReminderRules((current) =>
+      current.map((r) => (r.id === id ? { ...r, at_time: atTime } : r)).sort((a, b) => a.at_time.localeCompare(b.at_time))
+    );
+    const { error } = await client.from('reminder_rules').update({ at_time: atTime }).eq('id', id);
+    if (error) {
+      setReminderRules(previous);
+      setSettingsError(`Bijwerken mislukt: ${error.message}`);
+    } else {
+      setSettingsError('');
+    }
+  };
 
-      const currentUserId = session?.user?.id;
-      if (!currentUserId) throw new Error('Geen actieve Supabase-sessie.');
-      setUserId(currentUserId);
-
-      await ensureDefaults(supabase, currentUserId);
-      await refreshData(supabase, currentUserId);
-
-      const { error } = await supabase.from('settings').upsert(
-        {
-          user_id: currentUserId,
-          daily_target_ml: target,
-          day_start_hour: settings?.day_start_hour ?? DEFAULT_SETTINGS.day_start_hour,
-          timezone: settings?.timezone ?? DEFAULT_SETTINGS.timezone,
-          gamification_enabled: gamificationEnabled
-        },
-        { onConflict: ['user_id'] }
-      );
-
-      if (error) {
-        throw error;
-      }
-
-      setSettings((current) => ({
-        user_id: currentUserId,
-        daily_target_ml: target,
-        day_start_hour: current?.day_start_hour ?? DEFAULT_SETTINGS.day_start_hour,
-        timezone: current?.timezone ?? DEFAULT_SETTINGS.timezone,
-        gamification_enabled: gamificationEnabled
-      }));
-      setStatus('Instellingen opgeslagen');
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Onbekende fout bij opslaan');
+  const removeReminderRule = async (id: string) => {
+    if (!client) return;
+    const previous = reminderRules;
+    setReminderRules((current) => current.filter((r) => r.id !== id));
+    const { error } = await client.from('reminder_rules').delete().eq('id', id);
+    if (error) {
+      setReminderRules(previous);
+      setSettingsError(`Verwijderen mislukt: ${error.message}`);
+    } else {
+      setSettingsError('');
     }
   };
 
@@ -356,19 +374,26 @@ export default function App() {
           onUndo={undoLast}
         />
       )}
-      {tab === 'stats' && <StatsScreen history={history.slice(0, 7)} />}
+      {tab === 'stats' && (
+        <StatsScreen history={history.slice(0, 7)} target={target} streak={streak} gamificationEnabled={gamificationEnabled} />
+      )}
       {tab === 'settings' && (
         <SettingsScreen
-          supabaseUrl={supabaseUrl}
-          supabaseAnonKey={supabaseAnonKey}
           target={target}
+          containers={containers}
+          remindersEnabled={remindersEnabled}
+          reminderRules={reminderRules}
           gamificationEnabled={gamificationEnabled}
-          status={status}
-          onSupabaseUrlChange={setSupabaseUrl}
-          onSupabaseAnonKeyChange={setSupabaseAnonKey}
-          onTargetChange={setTarget}
-          onGamificationChange={setGamificationEnabled}
-          onSave={saveSettings}
+          streak={streak}
+          errorMessage={settingsError}
+          onTargetStep={handleTargetStep}
+          onAddContainer={addContainer}
+          onRemoveContainer={removeContainer}
+          onRemindersEnabledChange={(value) => updateSettings({ reminders_enabled: value })}
+          onAddReminderRule={addReminderRule}
+          onUpdateReminderRule={updateReminderRule}
+          onRemoveReminderRule={removeReminderRule}
+          onGamificationChange={(value) => updateSettings({ gamification_enabled: value })}
         />
       )}
 
