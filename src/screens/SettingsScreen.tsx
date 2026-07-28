@@ -6,10 +6,12 @@ type SettingsScreenProps = {
   supabaseUrl: string;
   supabaseAnonKey: string;
   target: number;
+  gamificationEnabled: boolean;
   status: string;
   onSupabaseUrlChange: (value: string) => void;
   onSupabaseAnonKeyChange: (value: string) => void;
   onTargetChange: (value: number) => void;
+  onGamificationChange: (value: boolean) => void;
   onSave: () => void;
 };
 
@@ -17,10 +19,12 @@ export default function SettingsScreen({
   supabaseUrl,
   supabaseAnonKey,
   target,
+  gamificationEnabled,
   status,
   onSupabaseUrlChange,
   onSupabaseAnonKeyChange,
   onTargetChange,
+  onGamificationChange,
   onSave
 }: SettingsScreenProps) {
   return (
@@ -56,6 +60,15 @@ export default function SettingsScreen({
               className="w-full rounded-card border border-border bg-surface-raised px-4 py-3 text-sm text-text"
             />
           </Field>
+          <label className="flex items-center justify-between gap-3 text-sm text-text">
+            <span>Streaks tonen ("X dagen op rij")</span>
+            <input
+              type="checkbox"
+              checked={gamificationEnabled}
+              onChange={(event) => onGamificationChange(event.target.checked)}
+              className="h-5 w-5 accent-accent"
+            />
+          </label>
           <Button variant="primary" onClick={onSave}>
             Opslaan
           </Button>

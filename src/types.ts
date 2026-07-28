@@ -21,6 +21,7 @@ export type SettingsRow = {
   daily_target_ml: number;
   day_start_hour: number;
   timezone: string;
+  gamification_enabled: boolean;
 };
 
 export type DailyIntakeRow = {

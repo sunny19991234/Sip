@@ -32,3 +32,33 @@ body {
 #root {
   min-height: 100vh;
 }
+
+@keyframes sip-wave-drift-a {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-200px);
+  }
+}
+
+@keyframes sip-wave-drift-b {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(200px);
+  }
+}
+
+.sip-wave-back {
+  animation: sip-wave-drift-a 7s linear infinite;
+}
+
+.sip-wave-front {
+  animation: sip-wave-drift-b 4.5s linear infinite;
+}
+
+.sip-water-rect {
+  transition: y 0.4s ease, height 0.4s ease;
+}
