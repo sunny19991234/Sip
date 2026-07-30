@@ -12,7 +12,8 @@ of de PRD moet worden bijgewerkt — geen stille scope-uitbreiding.
 - Frontend: React + TypeScript + Vite, Tailwind CSS, Recharts
 - PWA: vite-plugin-pwa (service worker, manifest, offline)
 - Backend: Supabase — Postgres met RLS, anonymous auth, Edge Functions, pg_cron
-- Hosting: Vercel (HTTPS), auto-deploy vanaf `main`
+- Hosting: GitHub Pages (HTTPS), auto-deploy vanaf `main` via
+  `.github/workflows/deploy-pages.yml`
 - Geen iOS, geen native app, geen Play Store
 
 ## Supabase-werkwijze
