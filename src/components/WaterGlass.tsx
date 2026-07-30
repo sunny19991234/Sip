@@ -42,10 +42,11 @@ export default function WaterGlass({ percent, amountMl, targetMl }: WaterGlassPr
               <path d={WAVE_PATH} fill="var(--color-accent)" transform="translate(0,-4)" />
             </g>
           </g>
+
+          <line x1="34" y1="12" x2="62" y2="206" stroke="white" strokeOpacity="0.12" strokeWidth="7" strokeLinecap="round" />
         </g>
 
         <path d={GLASS_PATH} fill="none" stroke="var(--color-border)" strokeWidth="2" />
-        <line x1="34" y1="12" x2="27" y2="206" stroke="white" strokeOpacity="0.12" strokeWidth="7" strokeLinecap="round" />
       </svg>
 
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-0.5 text-center">
