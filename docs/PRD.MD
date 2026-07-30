@@ -42,7 +42,7 @@ Eén gebruiker, één Android-toestel, één fles van 750 ml. De app wordt gebru
 | PWA-laag | `vite-plugin-pwa` (service worker, manifest, offline cache) | Vereist voor installatie op beginscherm en voor Web Push in fase 2 |
 | Backend/data | Supabase (Postgres, Auth, Edge Functions, pg_cron) | Eén platform voor opslag, RLS en het geplande notificatie-mechanisme |
 | Authenticatie | Supabase anonymous sign-in, sessie persistent in browser-storage; later koppelbaar aan e-mail | Geen inlogdrempel bij een NFC-tik, wél RLS-afdwingbaar per `user_id` |
-| Hosting | Vercel of Netlify (HTTPS verplicht) | HTTPS is randvoorwaarde voor PWA, service worker en Web Push |
+| Hosting | GitHub Pages (HTTPS verplicht), auto-deploy vanaf `main` via GitHub Actions | HTTPS is randvoorwaarde voor PWA, service worker en Web Push; geen aparte hostingpartij nodig naast GitHub |
 | Grafieken | Recharts | Voldoende voor staaf- en lijndiagrammen |
 
 ---
@@ -234,7 +234,7 @@ De tag bevat geen geheim en geen gebruikers-identificatie: de sessie zit in de b
 
 | # | Punt | Nodig vóór |
 |---|---|---|
-| 1 | Domeinnaam en hostingpartij vastleggen (bepaalt de URL die op de tag komt — na vergrendelen niet meer te wijzigen) | Tag beschrijven |
+| 1 | ~~Domeinnaam en hostingpartij vastleggen~~ — vastgelegd: GitHub Pages op `https://sunny19991234.github.io/Sip/` | Tag beschrijven |
 | 2 | Wordt de fles-inhoud van 750 ml bevestigd, of wijkt de werkelijke inhoud af? | Bouw F-03 |
 | 3 | Moet koffie/thee/andere dranken meetellen, of uitsluitend water? | Bouw fase 1 |
 | 4 | Gewenste tijdstippen en tussendoelen voor de meldingen in fase 2 | Bouw fase 2 |

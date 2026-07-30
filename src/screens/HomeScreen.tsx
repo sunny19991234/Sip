@@ -11,10 +11,17 @@ type HomeScreenProps = {
   customAmount: string;
   streak: number | null;
   showUndo: boolean;
+  pendingIds: Set<string>;
   onCustomAmountChange: (value: string) => void;
   onLog: (amount: number, source: string) => void;
   onCustomLog: () => void;
   onUndo: () => void;
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  nfc: 'NFC',
+  ui: 'Snelknop',
+  manual: 'Handmatig'
 };
 
 const TODAY_LABEL = new Intl.DateTimeFormat('nl-NL', {
@@ -33,6 +40,7 @@ export default function HomeScreen({
   customAmount,
   streak,
   showUndo,
+  pendingIds,
   onCustomAmountChange,
   onLog,
   onCustomLog,
@@ -108,8 +116,12 @@ export default function HomeScreen({
                 key={entry.id}
                 className="flex items-center justify-between rounded-card bg-surface-raised px-4 py-4"
               >
-                <span className="text-sm text-text">
+                <span className="flex items-center gap-2 text-sm text-text">
                   {new Date(entry.logged_at).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' })}
+                  <span className="text-xs font-normal text-text-muted">· {SOURCE_LABEL[entry.source] ?? entry.source}</span>
+                  {pendingIds.has(entry.id) && (
+                    <span className="text-xs font-normal text-text-muted">· wordt gesynchroniseerd</span>
+                  )}
                 </span>
                 <span className="text-sm font-semibold text-text">+{entry.amount_ml} ml</span>
               </li>

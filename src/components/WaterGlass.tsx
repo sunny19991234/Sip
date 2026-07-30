@@ -52,7 +52,7 @@ export default function WaterGlass({ percent, amountMl, targetMl }: WaterGlassPr
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-0.5 text-center">
         <span className="text-4xl font-bold text-text">{amountMl}</span>
         <span className="text-sm text-text-muted">van {targetMl} ml</span>
-        <span className="text-sm text-text-muted">{clamped}%</span>
+        <span className="text-sm text-text-muted">{percent}%</span>
       </div>
     </div>
   );

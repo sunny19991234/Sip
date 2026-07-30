@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import TabBar, { TabId } from './components/TabBar';
+import { NfcConfirmOverlay, NfcDuplicatePrompt } from './components/NfcOverlay';
 import HomeScreen from './screens/HomeScreen';
 import StatsScreen from './screens/StatsScreen';
 import SettingsScreen from './screens/SettingsScreen';
 import { Container, DailyIntakeRow, DrinkLogRow, ReminderRule, SettingsRow } from './types';
+import {
+  getAllQueuedDeletes,
+  getAllQueuedInserts,
+  queueDelete,
+  queueInsert,
+  removeQueuedDelete,
+  removeQueuedInsert
+} from './lib/offlineQueue';
 
 const DEFAULT_TARGET = 3000;
 const DEFAULT_CONTAINERS = [
@@ -38,20 +47,15 @@ function normalizeSupabaseUrl(value: string) {
 const SUPABASE_URL = normalizeSupabaseUrl(import.meta.env.VITE_SUPABASE_URL || '');
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
-function toAmsterdamDateString(date: Date) {
-  return date.toLocaleDateString('nl-NL', { timeZone: 'Europe/Amsterdam' });
-}
-
-function isTodayInAmsterdam(timestamp: string) {
-  const date = new Date(timestamp);
-  return toAmsterdamDateString(date) === toAmsterdamDateString(new Date());
-}
-
 function logicalDayISO(date: Date, dayStartHour: number, timezone: string) {
   const shifted = new Date(date.getTime() - dayStartHour * 3600 * 1000);
   return new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(
     shifted
   );
+}
+
+function isSameLogicalDay(timestamp: string, dayStartHour: number, timezone: string, reference: Date) {
+  return logicalDayISO(new Date(timestamp), dayStartHour, timezone) === logicalDayISO(reference, dayStartHour, timezone);
 }
 
 function computeStreak(history: DailyIntakeRow[], todayIso: string) {
@@ -95,8 +99,28 @@ export default function App() {
   const [settingsError, setSettingsError] = useState('');
   const [customAmount, setCustomAmount] = useState('250');
   const [showUndo, setShowUndo] = useState(false);
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+  const [nfcOverlay, setNfcOverlay] = useState<{ amount: number } | null>(null);
+  const [nfcDuplicatePrompt, setNfcDuplicatePrompt] = useState<{ amount: number } | null>(null);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const nfcOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadStartedRef = useRef(false);
+  const nfcTapRef = useRef<{ amount: number } | null>(null);
+
+  useEffect(() => {
+    const path = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    const isLogRoute = path.endsWith('/log') || path.endsWith('/log/');
+    const amount = Number(params.get('ml'));
+
+    if (isLogRoute && params.get('src') === 'nfc' && Number.isFinite(amount) && amount > 0) {
+      nfcTapRef.current = { amount };
+    }
+
+    if (isLogRoute) {
+      window.history.replaceState(null, '', import.meta.env.BASE_URL);
+    }
+  }, []);
 
   useEffect(() => {
     if (!client) {
@@ -124,7 +148,14 @@ export default function App() {
         setUserId(currentUserId);
 
         await ensureDefaults(client, currentUserId);
-        await refreshData(client, currentUserId);
+        const freshLogs = await refreshData(client, currentUserId);
+        await flushQueue(client);
+
+        if (nfcTapRef.current) {
+          const tap = nfcTapRef.current;
+          nfcTapRef.current = null;
+          await handleNfcTap(client, currentUserId, tap.amount, freshLogs);
+        }
       } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Onbekende fout');
       }
@@ -132,6 +163,39 @@ export default function App() {
 
     load();
   }, [client]);
+
+  useEffect(() => {
+    if (!client) return;
+    const handleOnline = () => {
+      flushQueue(client);
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [client]);
+
+  const flushQueue = async (supabase: SupabaseClient) => {
+    const inserts = await getAllQueuedInserts();
+    for (const entry of inserts) {
+      const { error } = await supabase.from('drink_log').insert(entry);
+      if (!error || error.code === '23505') {
+        await removeQueuedInsert(entry.id);
+        setPendingIds((current) => {
+          if (!current.has(entry.id)) return current;
+          const next = new Set(current);
+          next.delete(entry.id);
+          return next;
+        });
+      }
+    }
+
+    const deletes = await getAllQueuedDeletes();
+    for (const entry of deletes) {
+      const { error } = await supabase.from('drink_log').update({ deleted_at: entry.deleted_at }).eq('id', entry.id);
+      if (!error) {
+        await removeQueuedDelete(entry.id);
+      }
+    }
+  };
 
   const ensureDefaults = async (supabase: SupabaseClient, currentUserId: string) => {
     const [{ data: settingsData }, { data: containerData }] = await Promise.all([
@@ -184,12 +248,31 @@ export default function App() {
       throw containerError || logError || settingsFetchError || historyError || reminderError;
     }
 
+    const dayStartHour = (settingsData as SettingsRow | null)?.day_start_hour ?? DEFAULT_SETTINGS.day_start_hour;
+    const timezone = (settingsData as SettingsRow | null)?.timezone ?? DEFAULT_SETTINGS.timezone;
+    const now = new Date();
+
+    const serverLogs = ((logData || []) as DrinkLogRow[]).filter((entry) =>
+      isSameLogicalDay(entry.logged_at, dayStartHour, timezone, now)
+    );
+
+    const queuedInserts = (await getAllQueuedInserts()).filter(
+      (entry) => entry.user_id === currentUserId && isSameLogicalDay(entry.logged_at, dayStartHour, timezone, now)
+    );
+    const serverIds = new Set(serverLogs.map((entry) => entry.id));
+    const stillPending = queuedInserts.filter((entry) => !serverIds.has(entry.id));
+
+    const mergedLogs = [...stillPending, ...serverLogs].sort((a, b) => (a.logged_at < b.logged_at ? 1 : -1));
+
     setContainers(containerData || []);
-    setLogs(((logData || []) as DrinkLogRow[]).filter((entry) => isTodayInAmsterdam(entry.logged_at)));
+    setLogs(mergedLogs);
+    setPendingIds(new Set(stillPending.map((entry) => entry.id)));
     setSettings(settingsData as SettingsRow | null);
     setHistory((historyData || []) as DailyIntakeRow[]);
     setReminderRules((reminderData || []) as ReminderRule[]);
     setStatus('Verbonden');
+
+    return mergedLogs;
   };
 
   const target = settings?.daily_target_ml ?? DEFAULT_TARGET;
@@ -197,7 +280,7 @@ export default function App() {
   const remindersEnabled = settings?.reminders_enabled ?? DEFAULT_SETTINGS.reminders_enabled;
 
   const totalToday = useMemo(() => logs.reduce((sum, row) => sum + row.amount_ml, 0), [logs]);
-  const progress = Math.min(Math.round((totalToday / target) * 100), 100);
+  const progress = target > 0 ? Math.round((totalToday / target) * 100) : 0;
   const streak = useMemo(() => {
     if (!gamificationEnabled) return null;
     const dayStartHour = settings?.day_start_hour ?? DEFAULT_SETTINGS.day_start_hour;
@@ -206,34 +289,72 @@ export default function App() {
     return computeStreak(history, todayIso);
   }, [gamificationEnabled, history, settings]);
 
-  const addLog = async (amount: number, source: string) => {
-    if (!client || !userId) {
+  const addLog = async (amount: number, source: string, overrideClient?: SupabaseClient, overrideUserId?: string) => {
+    const supabase = overrideClient ?? client;
+    const uid = overrideUserId ?? userId;
+    if (!supabase || !uid) {
       setStatus('Geen verbinding met Supabase.');
       return;
     }
 
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
-    const { error } = await client.from('drink_log').insert({
-      id,
-      user_id: userId,
-      amount_ml: amount,
-      source,
-      logged_at: now
-    });
+    const entry: DrinkLogRow = { id, user_id: uid, amount_ml: amount, source, logged_at: now };
 
-    if (error) {
-      setStatus(`Fout bij opslaan: ${error.message}`);
-      return;
-    }
-
-    setLogs((current) => [{ id, user_id: userId, amount_ml: amount, source, logged_at: now }, ...current]);
-    setStatus(`${amount} ml opgeslagen`);
+    setLogs((current) => [entry, ...current]);
 
     if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
     setShowUndo(true);
     undoTimerRef.current = setTimeout(() => setShowUndo(false), 10000);
+
+    const { error } = await supabase.from('drink_log').insert(entry);
+
+    if (error) {
+      await queueInsert(entry);
+      setPendingIds((current) => new Set(current).add(id));
+      setStatus(`${amount} ml opgeslagen (offline, wordt gesynchroniseerd)`);
+      return;
+    }
+
+    setStatus(`${amount} ml opgeslagen`);
   };
+
+  const handleNfcTap = async (
+    supabase: SupabaseClient,
+    currentUserId: string,
+    amount: number,
+    currentLogs: DrinkLogRow[]
+  ) => {
+    const cutoffMs = Date.now() - 90_000;
+    const isDuplicate = currentLogs.some(
+      (entry) => entry.source === 'nfc' && entry.amount_ml === amount && new Date(entry.logged_at).getTime() >= cutoffMs
+    );
+
+    if (isDuplicate) {
+      setNfcDuplicatePrompt({ amount });
+      return;
+    }
+
+    await registerNfcLog(supabase, currentUserId, amount);
+  };
+
+  const registerNfcLog = async (supabase: SupabaseClient, currentUserId: string, amount: number) => {
+    setTab('home');
+    await addLog(amount, 'nfc', supabase, currentUserId);
+
+    setNfcOverlay({ amount });
+    if (nfcOverlayTimerRef.current) clearTimeout(nfcOverlayTimerRef.current);
+    nfcOverlayTimerRef.current = setTimeout(() => setNfcOverlay(null), 3000);
+  };
+
+  const confirmNfcDuplicate = async () => {
+    if (!client || !userId || !nfcDuplicatePrompt) return;
+    const amount = nfcDuplicatePrompt.amount;
+    setNfcDuplicatePrompt(null);
+    await registerNfcLog(client, userId, amount);
+  };
+
+  const cancelNfcDuplicate = () => setNfcDuplicatePrompt(null);
 
   const undoLast = async () => {
     if (!client || logs.length === 0) {
@@ -244,16 +365,25 @@ export default function App() {
     setShowUndo(false);
 
     const latest = logs[0];
+    setLogs((current) => current.filter((row) => row.id !== latest.id));
+    setStatus('Laatste entry verwijderd');
+
+    if (pendingIds.has(latest.id)) {
+      await removeQueuedInsert(latest.id);
+      setPendingIds((current) => {
+        const next = new Set(current);
+        next.delete(latest.id);
+        return next;
+      });
+      return;
+    }
+
     const now = new Date().toISOString();
     const { error } = await client.from('drink_log').update({ deleted_at: now }).eq('id', latest.id);
 
     if (error) {
-      setStatus(`Undo mislukt: ${error.message}`);
-      return;
+      await queueDelete({ id: latest.id, deleted_at: now });
     }
-
-    setLogs((current) => current.filter((row) => row.id !== latest.id));
-    setStatus('Laatste entry verwijderd');
   };
 
   const handleCustomLog = async () => {
@@ -362,6 +492,21 @@ export default function App() {
 
   return (
     <div className="mx-auto min-h-screen max-w-[520px] px-4 pb-28 pt-6">
+      {nfcDuplicatePrompt && (
+        <NfcDuplicatePrompt
+          amountMl={nfcDuplicatePrompt.amount}
+          onConfirm={confirmNfcDuplicate}
+          onCancel={cancelNfcDuplicate}
+        />
+      )}
+      {!nfcDuplicatePrompt && nfcOverlay && (
+        <NfcConfirmOverlay
+          amountMl={nfcOverlay.amount}
+          totalToday={totalToday}
+          targetMl={target}
+          onDismiss={() => setNfcOverlay(null)}
+        />
+      )}
       {!client && (
         <div className="mb-4 rounded-lg border border-red-400/40 bg-red-400/10 px-3 py-2 text-sm text-red-300">
           {status}
@@ -377,6 +522,7 @@ export default function App() {
           customAmount={customAmount}
           streak={streak}
           showUndo={showUndo}
+          pendingIds={pendingIds}
           onCustomAmountChange={setCustomAmount}
           onLog={addLog}
           onCustomLog={handleCustomLog}
