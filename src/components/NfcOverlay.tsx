@@ -27,16 +27,24 @@ export function NfcConfirmOverlay({ amountMl, totalToday, targetMl, onDismiss }:
 
 type NfcDuplicatePromptProps = {
   amountMl: number;
+  source: 'nfc' | 'shortcut';
   onConfirm: () => void;
   onCancel: () => void;
 };
 
-export function NfcDuplicatePrompt({ amountMl, onConfirm, onCancel }: NfcDuplicatePromptProps) {
+const SOURCE_LABEL: Record<NfcDuplicatePromptProps['source'], string> = {
+  nfc: 'NFC',
+  shortcut: 'de snelkoppeling'
+};
+
+export function NfcDuplicatePrompt({ amountMl, source, onConfirm, onCancel }: NfcDuplicatePromptProps) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-bg px-6 text-center">
       <div className="flex flex-col gap-2">
         <span className="text-xl font-semibold text-text">Nog een fles loggen?</span>
-        <span className="text-sm text-text-muted">Er is net al {amountMl} ml via NFC geregistreerd.</span>
+        <span className="text-sm text-text-muted">
+          Er is net al {amountMl} ml via {SOURCE_LABEL[source]} geregistreerd.
+        </span>
       </div>
       <div className="flex gap-3">
         <Button variant="raised" onClick={onCancel}>

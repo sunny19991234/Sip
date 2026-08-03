@@ -15,6 +15,8 @@ import {
   removeQueuedInsert
 } from './lib/offlineQueue';
 
+type QuickLogSource = 'nfc' | 'shortcut';
+
 const DEFAULT_TARGET = 3000;
 const DEFAULT_CONTAINERS = [
   { name: 'Glas', volume_ml: 250, sort_order: 1, is_nfc_default: false },
@@ -101,20 +103,24 @@ export default function App() {
   const [showUndo, setShowUndo] = useState(false);
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
   const [nfcOverlay, setNfcOverlay] = useState<{ amount: number } | null>(null);
-  const [nfcDuplicatePrompt, setNfcDuplicatePrompt] = useState<{ amount: number } | null>(null);
+  const [nfcDuplicatePrompt, setNfcDuplicatePrompt] = useState<{ amount: number; source: QuickLogSource } | null>(
+    null
+  );
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const nfcOverlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadStartedRef = useRef(false);
-  const nfcTapRef = useRef<{ amount: number } | null>(null);
+  const nfcTapRef = useRef<{ amount: number; source: QuickLogSource } | null>(null);
 
   useEffect(() => {
     const path = window.location.pathname;
     const params = new URLSearchParams(window.location.search);
     const isLogRoute = path.endsWith('/log') || path.endsWith('/log/');
     const amount = Number(params.get('ml'));
+    const src = params.get('src');
+    const isQuickLogSource = src === 'nfc' || src === 'shortcut';
 
-    if (isLogRoute && params.get('src') === 'nfc' && Number.isFinite(amount) && amount > 0) {
-      nfcTapRef.current = { amount };
+    if (isLogRoute && isQuickLogSource && Number.isFinite(amount) && amount > 0) {
+      nfcTapRef.current = { amount, source: src as QuickLogSource };
     }
 
     if (isLogRoute) {
@@ -154,7 +160,7 @@ export default function App() {
         if (nfcTapRef.current) {
           const tap = nfcTapRef.current;
           nfcTapRef.current = null;
-          await handleNfcTap(client, currentUserId, tap.amount, freshLogs);
+          await handleQuickTap(client, currentUserId, tap.amount, tap.source, freshLogs);
         }
       } catch (error) {
         setStatus(error instanceof Error ? error.message : 'Onbekende fout');
@@ -319,28 +325,34 @@ export default function App() {
     setStatus(`${amount} ml opgeslagen`);
   };
 
-  const handleNfcTap = async (
+  const handleQuickTap = async (
     supabase: SupabaseClient,
     currentUserId: string,
     amount: number,
+    source: QuickLogSource,
     currentLogs: DrinkLogRow[]
   ) => {
     const cutoffMs = Date.now() - 90_000;
     const isDuplicate = currentLogs.some(
-      (entry) => entry.source === 'nfc' && entry.amount_ml === amount && new Date(entry.logged_at).getTime() >= cutoffMs
+      (entry) => entry.source === source && entry.amount_ml === amount && new Date(entry.logged_at).getTime() >= cutoffMs
     );
 
     if (isDuplicate) {
-      setNfcDuplicatePrompt({ amount });
+      setNfcDuplicatePrompt({ amount, source });
       return;
     }
 
-    await registerNfcLog(supabase, currentUserId, amount);
+    await registerQuickLog(supabase, currentUserId, amount, source);
   };
 
-  const registerNfcLog = async (supabase: SupabaseClient, currentUserId: string, amount: number) => {
+  const registerQuickLog = async (
+    supabase: SupabaseClient,
+    currentUserId: string,
+    amount: number,
+    source: QuickLogSource
+  ) => {
     setTab('home');
-    await addLog(amount, 'nfc', supabase, currentUserId);
+    await addLog(amount, source, supabase, currentUserId);
 
     setNfcOverlay({ amount });
     if (nfcOverlayTimerRef.current) clearTimeout(nfcOverlayTimerRef.current);
@@ -349,9 +361,9 @@ export default function App() {
 
   const confirmNfcDuplicate = async () => {
     if (!client || !userId || !nfcDuplicatePrompt) return;
-    const amount = nfcDuplicatePrompt.amount;
+    const { amount, source } = nfcDuplicatePrompt;
     setNfcDuplicatePrompt(null);
-    await registerNfcLog(client, userId, amount);
+    await registerQuickLog(client, userId, amount, source);
   };
 
   const cancelNfcDuplicate = () => setNfcDuplicatePrompt(null);
@@ -495,6 +507,7 @@ export default function App() {
       {nfcDuplicatePrompt && (
         <NfcDuplicatePrompt
           amountMl={nfcDuplicatePrompt.amount}
+          source={nfcDuplicatePrompt.source}
           onConfirm={confirmNfcDuplicate}
           onCancel={cancelNfcDuplicate}
         />

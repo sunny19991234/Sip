@@ -21,6 +21,20 @@ export default defineConfig(({ mode }) => ({
           { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
           { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
           { src: 'icons/icon-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+        ],
+        shortcuts: [
+          {
+            name: 'Log 250 ml',
+            short_name: '250 ml',
+            url: 'log?ml=250&src=shortcut',
+            icons: [{ src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' }]
+          },
+          {
+            name: 'Log 500 ml',
+            short_name: '500 ml',
+            url: 'log?ml=500&src=shortcut',
+            icons: [{ src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' }]
+          }
         ]
       },
       workbox: {
