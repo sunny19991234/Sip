@@ -10,6 +10,7 @@ const MIN_TARGET = 100;
 
 type SettingsScreenProps = {
   target: number;
+  dayStartHour: number;
   containers: Container[];
   remindersEnabled: boolean;
   reminderRules: ReminderRule[];
@@ -17,6 +18,7 @@ type SettingsScreenProps = {
   streak: number | null;
   errorMessage: string;
   onTargetStep: (delta: number) => void;
+  onDayStartHourChange: (hour: number) => void;
   onAddContainer: (name: string, volumeMl: number) => void;
   onRemoveContainer: (id: string) => void;
   onRemindersEnabledChange: (value: boolean) => void;
@@ -28,6 +30,7 @@ type SettingsScreenProps = {
 
 export default function SettingsScreen({
   target,
+  dayStartHour,
   containers,
   remindersEnabled,
   reminderRules,
@@ -35,6 +38,7 @@ export default function SettingsScreen({
   streak,
   errorMessage,
   onTargetStep,
+  onDayStartHourChange,
   onAddContainer,
   onRemoveContainer,
   onRemindersEnabledChange,
@@ -80,6 +84,23 @@ export default function SettingsScreen({
           >
             +
           </button>
+        </div>
+      </Card>
+
+      <Card title="Daggrens">
+        <div className="flex items-center justify-between gap-4 rounded-card border border-border bg-surface-raised px-4 py-3">
+          <span className="text-sm text-text-muted">Nieuwe dag begint om</span>
+          <select
+            value={dayStartHour}
+            onChange={(event) => onDayStartHourChange(Number(event.target.value))}
+            className="rounded-card border border-border bg-bg px-3 py-2 text-sm font-semibold text-text"
+          >
+            {Array.from({ length: 24 }, (_, hour) => hour).map((hour) => (
+              <option key={hour} value={hour}>
+                {String(hour).padStart(2, '0')}:00
+              </option>
+            ))}
+          </select>
         </div>
       </Card>
 

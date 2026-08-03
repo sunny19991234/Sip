@@ -395,7 +395,7 @@ export default function App() {
     await addLog(amount, 'manual');
   };
 
-  const updateSettings = async (patch: Partial<Pick<SettingsRow, 'daily_target_ml' | 'gamification_enabled' | 'reminders_enabled'>>) => {
+  const updateSettings = async (patch: Partial<Pick<SettingsRow, 'daily_target_ml' | 'day_start_hour' | 'gamification_enabled' | 'reminders_enabled'>>) => {
     if (!client || !userId || !settings) return;
     const previous = settings;
     setSettings({ ...settings, ...patch });
@@ -535,6 +535,7 @@ export default function App() {
       {tab === 'settings' && (
         <SettingsScreen
           target={target}
+          dayStartHour={settings?.day_start_hour ?? DEFAULT_SETTINGS.day_start_hour}
           containers={containers}
           remindersEnabled={remindersEnabled}
           reminderRules={reminderRules}
@@ -542,6 +543,7 @@ export default function App() {
           streak={streak}
           errorMessage={settingsError}
           onTargetStep={handleTargetStep}
+          onDayStartHourChange={(value) => updateSettings({ day_start_hour: value })}
           onAddContainer={addContainer}
           onRemoveContainer={removeContainer}
           onRemindersEnabledChange={(value) => updateSettings({ reminders_enabled: value })}
